@@ -1,0 +1,30 @@
+camera
+position   0 2 15
+look_at    0 1 0
+up         0 1 0
+vfov       50
+end
+
+material ground      lambertian 0.5 0.5 0.5
+material glass       dielectric 1.5
+material red_metal    metal      0.8 0.2 0.2 0.1
+material green_metal  metal      0.2 0.8 0.2 0.3
+material blue_plastic lambertian 0.2 0.2 0.8
+material light       diffuse_light 15 15 15
+
+sphere 0 -1000 0 1000 ground
+
+# Lights
+sphere -10 10 0 2 light
+sphere 10 10 0 2 light
+
+# Central glass cylinder
+cylinder 0 -1 0 0 3 0 1.0 glass
+
+# Side metal cylinders
+cylinder -3 -1 0 -3 2 0 0.5 red_metal
+cylinder 3 -1 0 3 2 0 0.5 green_metal
+
+# Small spheres
+sphere -2 0.5 2 0.5 blue_plastic
+sphere 2 0.5 2 0.5 glass

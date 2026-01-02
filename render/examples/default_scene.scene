@@ -1,0 +1,9 @@
+material ground lambertian 0.8 0.8 0.0
+material center lambertian 0.1 0.2 0.5
+material left metal 0.8 0.8 0.8 0.3
+material right metal 0.8 0.6 0.2 1.0
+
+sphere 0.0 -100.5 -1.0 100.0 ground
+sphere 0.0 0.0 -1.0 0.5 center
+sphere -1.0 0.0 -1.0 0.5 left
+sphere 1.0 0.0 -1.0 0.5 right
