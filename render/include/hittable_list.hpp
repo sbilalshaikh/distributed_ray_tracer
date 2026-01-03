@@ -19,6 +19,8 @@ class hittable_list : public hittable {
     }
 
     bool hit(const ray& r, double ray_tmin, double ray_tmax, hit_record& rec) const override;
+    
+    aabb bounding_box() const override;
 };
 
 #endif

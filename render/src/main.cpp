@@ -12,6 +12,7 @@
 #include "sphere.hpp"
 #include "scene_parser.hpp"
 #include "renderer.hpp"
+#include "bvh.hpp"
 
 
 int main(int argc, char* argv[]) {
@@ -71,6 +72,11 @@ int main(int argc, char* argv[]) {
     // Removed frame_scene and show_axes logic as AABB support is removed.
     
     std::cerr << "Parsed world size = " << current_scene.world.objects.size() << "\n";
+    
+    std::clog << "Constructing BVH...\n";
+    hittable_list world_bvh;
+    world_bvh.add(std::make_shared<bvh_node>(current_scene.world));
+    std::clog << "BVH constructed.\n";
 
     camera cam(
         current_scene.camera.position,
@@ -81,7 +87,7 @@ int main(int argc, char* argv[]) {
         (int)image_width,
         (int)image_height
     );
-    renderer rend(cam, current_scene.world);
+    renderer rend(cam, world_bvh);
 
     std::vector<color> out_pixels =
         rend.render_tile(

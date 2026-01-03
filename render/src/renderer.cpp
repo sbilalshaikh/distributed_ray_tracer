@@ -29,19 +29,16 @@ std::vector<color> renderer::render_tile(
 
     #pragma omp parallel for schedule(dynamic)
     for (int j = 0; j < tile_height; ++j) {
+        pcg32 rng(seed + omp_get_thread_num());
+
         if (omp_get_thread_num() == 0) {
             print_progress(j, tile_height);
         }
         for (int i = 0; i < tile_width; ++i) {
-            pcg32 rng(
-                seed
-                + static_cast<uint64_t>(y0 + j) * 1315423911ull
-                + static_cast<uint64_t>(x0 + i)
-            );
-
             color pixel_color(0, 0, 0);
 
             for (int s = 0; s < samples_per_pixel; ++s) {
+                // anti aliasing
                 ray r = cam.get_ray(x0 + i, y0 + j, rng);
                 pixel_color += ray_color(r, max_depth, rng);
             }

@@ -86,4 +86,11 @@ bool cylinder::hit(const ray& r, double ray_tmin, double ray_tmax, hit_record& r
     return hit;
 }
 
+aabb cylinder::bounding_box() const {
+    // A cylinder's bounding box is the union of the bounding boxes of its two end-cap spheres.
+    aabb box1(p1 - vec3(radius, radius, radius), p1 + vec3(radius, radius, radius));
+    aabb box2(p2 - vec3(radius, radius, radius), p2 + vec3(radius, radius, radius));
+    return aabb(box1, box2);
+}
+
 

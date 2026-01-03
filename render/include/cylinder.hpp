@@ -11,6 +11,8 @@ public:
         : p1(p1), p2(p2), radius(radius), mat(mat) {}
 
     bool hit(const ray& r, double ray_tmin, double ray_tmax, hit_record& rec) const override;
+    
+    aabb bounding_box() const override;
 
 private:
     point3 p1, p2;

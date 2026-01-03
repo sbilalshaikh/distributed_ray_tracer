@@ -26,3 +26,7 @@ bool sphere::hit(const ray& r, double ray_tmin, double ray_tmax, hit_record& rec
 
     return true;
 }
+
+aabb sphere::bounding_box() const {
+    return aabb(center - vec3(radius, radius, radius), center + vec3(radius, radius, radius));
+}

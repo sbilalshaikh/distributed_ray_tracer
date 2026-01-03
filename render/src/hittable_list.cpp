@@ -15,3 +15,17 @@ bool hittable_list::hit(const ray& r, double ray_tmin, double ray_tmax, hit_reco
 
     return hit_anything;
 }
+
+aabb hittable_list::bounding_box() const {
+    if (objects.empty()) {
+        return aabb();
+    }
+
+    aabb total_box = objects[0]->bounding_box();
+    
+    for (size_t i = 1; i < objects.size(); ++i) {
+        total_box = aabb(total_box, objects[i]->bounding_box());
+    }
+
+    return total_box;
+}

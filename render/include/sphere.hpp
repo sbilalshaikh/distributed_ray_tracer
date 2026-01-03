@@ -14,6 +14,8 @@ class sphere : public hittable {
 
     bool hit(const ray& r, double ray_tmin, double ray_tmax, hit_record& rec) const override;
 
+    aabb bounding_box() const override;
+
     const point3& center_point() const { return center; }
     double radius_value() const { return radius; }
 
