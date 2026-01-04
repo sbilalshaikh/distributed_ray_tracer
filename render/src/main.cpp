@@ -10,15 +10,74 @@
 #include "math_utils.hpp"
 #include "material.hpp"
 #include "sphere.hpp"
+#include "cylinder.hpp"
 #include "scene_parser.hpp"
 #include "renderer.hpp"
 #include "bvh.hpp"
 
+namespace {
+
+// Computes the bounding box of the "interesting" part of the scene, ignoring huge objects.
+aabb compute_scene_bounds(const hittable_list& world) {
+    aabb total_bounds;
+    bool first_box = true;
+
+    for (const auto& object : world.objects) {
+        aabb object_box = object->bounding_box();
+        // Heuristic: Ignore objects that are excessively large, like ground planes.
+        if ((object_box.max() - object_box.min()).length() > 1000.0) {
+            continue;
+        }
+
+        if (first_box) {
+            total_bounds = object_box;
+            first_box = false;
+        } else {
+            total_bounds = aabb(total_bounds, object_box);
+        }
+    }
+    return total_bounds;
+}
+
+bool apply_framed_camera(scene& sc, const hittable_list& world, double aspect_ratio) {
+    aabb bounds = compute_scene_bounds(world);
+    
+    // need a valid aabb to frame scene
+    if (bounds.min().x() == std::numeric_limits<double>::infinity() ||
+        bounds.max().x() == -std::numeric_limits<double>::infinity()) {
+        return false;
+    }
+
+    auto center = point3(
+        0.5 * (bounds.min().x() + bounds.max().x()),
+        0.5 * (bounds.min().y() + bounds.max().y()),
+        0.5 * (bounds.min().z() + bounds.max().z())
+    );
+    vec3 half_extent = 0.5 * (bounds.max() - bounds.min());
+
+    double target_vfov = 50.0;
+    double vfov_rad = degrees_to_radians(target_vfov);
+    
+    double distance_vertical = half_extent.y() / std::tan(vfov_rad / 2.0);
+    double hfov_rad = 2.0 * atan(tan(vfov_rad / 2.0) * aspect_ratio);
+    double distance_horizontal = half_extent.x() / std::tan(hfov_rad / 2.0);
+    
+    double distance = std::max({distance_vertical, distance_horizontal, 0.5});
+    distance *= 1.5; // padding
+    
+    sc.camera.position = center + vec3(0, half_extent.y() * 0.1, distance + half_extent.z());
+    sc.camera.look_at = center;
+    sc.camera.up = vec3(0, 1, 0);
+    sc.camera.vfov = target_vfov;
+
+    return true;
+}
+} // anonymous namespace
+
 
 int main(int argc, char* argv[]) {
     scene current_scene;
-    bool show_axes = false; // This option will no longer add axes, as aabb is removed.
-    bool frame_scene = false; // This option will no longer frame the camera, as aabb is removed.
+    bool frame_scene = false; 
     std::string scene_path;
     size_t image_width = 1200;
     int samples_per_pixel = 500;
@@ -26,11 +85,7 @@ int main(int argc, char* argv[]) {
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--show-axes" || arg == "--axes") {
-            std::cerr << "Warning: --show-axes is deprecated as AABB (voxel) support has been removed.\n";
-            show_axes = true;
-        } else if (arg == "--frame-scene" || arg == "--frame-camera") {
-            std::cerr << "Warning: --frame-scene is deprecated as AABB (voxel) support has been removed.\n";
+        if (arg == "--frame-scene" || arg == "--frame-camera") {
             frame_scene = true;
         } else if (arg == "--width") {
             if (i + 1 < argc) {
@@ -69,13 +124,28 @@ int main(int argc, char* argv[]) {
     }
     size_t image_height = static_cast<size_t>(image_width / (16.0/9.0));
 
-    // Removed frame_scene and show_axes logic as AABB support is removed.
     
     std::cerr << "Parsed world size = " << current_scene.world.objects.size() << "\n";
     
+    // Note: BVH construction now happens *after* potential `frame_scene` logic
+    // if we decide to base framing on the pre-BVH object list.
+    if (frame_scene) {
+        double aspect_ratio = double(image_width) / double(image_height);
+        // We pass the original world list to compute bounds, ignoring large objects
+        if (apply_framed_camera(current_scene, current_scene.world, aspect_ratio)) {
+            std::cerr << "Auto camera position: "
+                      << current_scene.camera.position.x() << ", "
+                      << current_scene.camera.position.y() << ", "
+                      << current_scene.camera.position.z()
+                      << "\n";
+        } else {
+            std::cerr << "Warning: could not frame camera; using scene camera instead.\n";
+        }
+    }
+
     std::clog << "Constructing BVH...\n";
-    hittable_list world_bvh;
-    world_bvh.add(std::make_shared<bvh_node>(current_scene.world));
+    hittable_list world_bvh_list;
+    world_bvh_list.add(std::make_shared<bvh_node>(current_scene.world));
     std::clog << "BVH constructed.\n";
 
     camera cam(
@@ -87,7 +157,7 @@ int main(int argc, char* argv[]) {
         (int)image_width,
         (int)image_height
     );
-    renderer rend(cam, world_bvh);
+    renderer rend(cam, world_bvh_list);
 
     std::vector<color> out_pixels =
         rend.render_tile(

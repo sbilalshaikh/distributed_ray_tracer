@@ -17,73 +17,114 @@ static bool solve_quadratic(double a, double b, double c, double& t0, double& t1
 }
 
 bool cylinder::hit(const ray& r, double ray_tmin, double ray_tmax, hit_record& rec) const {
-    vec3 axis = p2 - p1;
-    double axis_len_sq = dot(axis, axis);
-    vec3 axis_norm = axis / sqrt(axis_len_sq);
-    vec3 oc = r.origin() - p1;
+    vec3 ro = r.origin();
+    vec3 rd = r.direction();
+    vec3 ba = p2 - p1; // Cylinder axis vector
+    vec3 oc = ro - p1; // Vector from cylinder base to ray origin
 
-    vec3 a_comp = r.direction() - dot(r.direction(), axis_norm) * axis_norm;
-    double a = dot(a_comp, a_comp);
+    // Coefficients for quadratic equation for infinite cylinder body
+    double a = dot(rd, rd) - dot(rd, unit_vector(ba)) * dot(rd, unit_vector(ba));
+    double b = 2.0 * (dot(rd, oc) - dot(rd, unit_vector(ba)) * dot(oc, unit_vector(ba)));
+    double c = dot(oc, oc) - dot(oc, unit_vector(ba)) * dot(oc, unit_vector(ba)) - radius*radius;
 
-    vec3 b_comp = oc - dot(oc, axis_norm) * axis_norm;
-    double b = 2.0 * dot(a_comp, b_comp);
-    double c = dot(b_comp, b_comp) - radius*radius;
-
-    double t0, t1;
-    if (!solve_quadratic(a, b, c, t0, t1)) {
-        return false;
+    double t0_body, t1_body;
+    if (!solve_quadratic(a, b, c, t0_body, t1_body)) {
+        // No intersection with infinite cylinder body
+        t0_body = std::numeric_limits<double>::infinity();
+        t1_body = std::numeric_limits<double>::infinity();
     }
 
-    bool hit = false;
-    double closest_t = ray_tmax;
+    bool hit_body = false;
+    double t_body = std::numeric_limits<double>::infinity();
+    
+    // Check solutions for cylinder body
+    if (t0_body > ray_tmin && t0_body < ray_tmax) {
+        point3 p = r.at(t0_body);
+        double height = dot(p - p1, unit_vector(ba));
+        if (height >= 0.0 && height <= ba.length()) {
+            t_body = t0_body;
+            hit_body = true;
+        }
+    }
+    if (t1_body > ray_tmin && t1_body < ray_tmax && t1_body < t_body) {
+        point3 p = r.at(t1_body);
+        double height = dot(p - p1, unit_vector(ba));
+        if (height >= 0.0 && height <= ba.length()) {
+            t_body = t1_body;
+            hit_body = true;
+        }
+    }
 
-    // Check body intersections
-    for (double t : {t0, t1}) {
-        if (t > ray_tmin && t < closest_t) {
-            point3 p = r.at(t);
-            double height = dot(p - p1, axis_norm);
-            if (height >= 0 && height <= sqrt(axis_len_sq)) {
-                hit = true;
-                closest_t = t;
-                rec.t = t;
-                rec.p = p;
-                vec3 outward_normal = (p - p1 - height * axis_norm) / radius;
-                rec.set_face_normal(r, outward_normal);
-                rec.mat = mat;
+    // Check caps
+    double t_cap1 = std::numeric_limits<double>::infinity();
+    double t_cap2 = std::numeric_limits<double>::infinity();
+
+    // Intersection with plane of bottom cap
+    double denom1 = dot(rd, -unit_vector(ba));
+    if (std::fabs(denom1) > 1e-8) { // If ray not parallel to cap plane
+        t_cap1 = dot(p1 - ro, -unit_vector(ba)) / denom1;
+        if (t_cap1 > ray_tmin && t_cap1 < ray_tmax) {
+            point3 p_cap = r.at(t_cap1);
+            if ((p_cap - p1).length_squared() > radius*radius) { // Point outside cap circle
+                t_cap1 = std::numeric_limits<double>::infinity();
             }
+        } else {
+            t_cap1 = std::numeric_limits<double>::infinity();
         }
     }
 
-    // Check cap intersections
-    // Bottom cap
-    double t_cap1 = dot(p1 - r.origin(), axis_norm) / dot(r.direction(), axis_norm);
-    if (t_cap1 > ray_tmin && t_cap1 < closest_t) {
-        point3 p_cap = r.at(t_cap1);
-        if (dot(p_cap - p1, p_cap - p1) < radius*radius) {
-            hit = true;
-            closest_t = t_cap1;
-            rec.t = t_cap1;
-            rec.p = p_cap;
-            rec.set_face_normal(r, -axis_norm);
-            rec.mat = mat;
+    // Intersection with plane of top cap
+    double denom2 = dot(rd, unit_vector(ba));
+    if (std::fabs(denom2) > 1e-8) { // If ray not parallel to cap plane
+        t_cap2 = dot(p2 - ro, unit_vector(ba)) / denom2;
+        if (t_cap2 > ray_tmin && t_cap2 < ray_tmax) {
+            point3 p_cap = r.at(t_cap2);
+            if ((p_cap - p2).length_squared() > radius*radius) { // Point outside cap circle
+                t_cap2 = std::numeric_limits<double>::infinity();
+            }
+        } else {
+            t_cap2 = std::numeric_limits<double>::infinity();
         }
     }
+    
+    double t_final = std::numeric_limits<double>::infinity();
+    bool hit_something = false;
 
-    // Top cap
-    double t_cap2 = dot(p2 - r.origin(), axis_norm) / dot(r.direction(), axis_norm);
-    if (t_cap2 > ray_tmin && t_cap2 < closest_t) {
-        point3 p_cap = r.at(t_cap2);
-        if (dot(p_cap - p2, p_cap - p2) < radius*radius) {
-            hit = true;
-            closest_t = t_cap2;
-            rec.t = t_cap2;
-            rec.p = p_cap;
-            rec.set_face_normal(r, axis_norm);
-            rec.mat = mat;
-        }
+    if (hit_body && t_body < t_final) {
+        t_final = t_body;
+        hit_something = true;
+    }
+    if (t_cap1 < t_final) {
+        t_final = t_cap1;
+        hit_something = true;
+    }
+    if (t_cap2 < t_final) {
+        t_final = t_cap2;
+        hit_something = true;
     }
 
-    return hit;
+    if (!hit_something) return false;
+
+    rec.t = t_final;
+    rec.p = r.at(t_final);
+
+    vec3 outward_normal;
+    if (t_final == t_body) {
+        // Normal for cylinder body
+        double height = dot(rec.p - p1, unit_vector(ba));
+        outward_normal = unit_vector(rec.p - p1 - height * unit_vector(ba));
+    } else if (t_final == t_cap1) {
+        // Normal for bottom cap
+        outward_normal = -unit_vector(ba);
+    } else { // t_final == t_cap2
+        // Normal for top cap
+        outward_normal = unit_vector(ba);
+    }
+
+    rec.set_face_normal(r, outward_normal);
+    rec.mat = mat;
+
+    return true;
 }
 
 aabb cylinder::bounding_box() const {
@@ -92,5 +133,3 @@ aabb cylinder::bounding_box() const {
     aabb box2(p2 - vec3(radius, radius, radius), p2 + vec3(radius, radius, radius));
     return aabb(box1, box2);
 }
-
-

@@ -1,6 +1,6 @@
 # Renderer
 
-This is a simple ray tracer that renders scenes described in a custom scene description language. It supports basic geometric primitives, materials, and lighting.
+This is a ray tracer that renders scenes described in a custom scene description language. It supports basic geometric primitives, materials, lighting, and uses a Bounding Volume Hierarchy (BVH) for accelerated rendering.
 
 ## Features
 
@@ -11,39 +11,48 @@ This is a simple ray tracer that renders scenes described in a custom scene desc
     *   Lambertian (diffuse)
     *   Metal (reflective)
     *   Dielectric (refractive)
-*   **Lighting:**
-    *   Diffuse (emissive) materials
+    *   Diffuse Light (emissive)
+*   **Acceleration Structure:**
+    *   Bounding Volume Hierarchy (BVH) for efficient ray intersection testing.
 *   **Camera:**
-    *   Configurable position, look-at point, up vector, and vertical field of view (vfov).
+    *   Configurable position, look-at point, up vector, and vertical field of view (vfov) via scene file.
+    *   Automatic scene framing to focus on the main objects using the `--frame-scene` flag.
 *   **Command-line Controls:**
     *   Control image width, samples per pixel, and max ray depth.
+*   **Performance Optimizations:**
+    *   Inlined `vec3` operations for reduced overhead.
+    *   Optimized BVH construction and traversal.
+    *   Efficient per-thread random number generation.
 
 ## Code Structure
 
+The core rendering logic is encapsulated in the `render_core` static library, which is linked by the `render` executable and will be used by `master` and `worker` executables in a future distributed setup.
+
 | File                      | Description                                                                      |
 | ------------------------- | -------------------------------------------------------------------------------- |
-| `render/src/main.cpp`       | The main entry point of the renderer. Parses command-line arguments, loads a scene, and starts the rendering process. |
-| `render/include/renderer.hpp` | The header file for the `renderer` class.                                        |
-| `render/src/renderer.cpp`   | The implementation of the `renderer` class, which contains the main rendering loop and the `ray_color` function. |
+| `render/src/main.cpp`       | The main entry point of the standalone `render` executable. Parses command-line arguments, loads a scene, and initiates rendering using `render_core`. |
+| `render/include/aabb.hpp`     | The header file for the `aabb` (Axis-Aligned Bounding Box) utility class, used internally by the BVH. |
+| `render/include/bvh.hpp`      | The header file for the `bvh_node` class, which implements the Bounding Volume Hierarchy acceleration structure. |
+| `render/src/bvh.cpp`        | The implementation of the `bvh_node` class, including tree construction and optimized traversal. |
 | `render/include/camera.hpp`   | The header file for the `camera` class.                                          |
 | `render/src/camera.cpp`     | The implementation of the `camera` class, which handles ray generation.          |
-| `render/include/hittable.hpp` | The header file for the `hittable` abstract base class.                          |
-| `render/include/hittable_list.hpp` | The header file for the `hittable_list` class, which stores a list of hittable objects. |
-| `render/src/hittable_list.cpp` | The implementation of the `hittable_list` class.                               |
-| `render/include/sphere.hpp`   | The header file for the `sphere` class.                                          |
-| `render/src/sphere.cpp`     | The implementation of the ray-sphere intersection logic.                         |
-| `render/include/aabb.hpp`     | The header file for the `aabb` class (Axis-Aligned Bounding Box).              |
-| `render/src/aabb.cpp`       | The implementation of the ray-AABB intersection logic.                           |
-| `render/include/cylinder.hpp` | The header file for the `cylinder` class.                                        |
-| `render/src/cylinder.cpp`   | The implementation of the ray-cylinder intersection logic.                       |
-| `render/include/material.hpp` | The header file for the `material` abstract base class and its derived classes. |
-| `render/src/material.cpp`   | The implementation of the `scatter` functions for the different materials.       |
-| `render/include/ray.hpp`      | The header file for the `ray` class.                                             |
-| `render/include/vec3.hpp`     | The header file for the `vec3` class, which is used for points, vectors, and colors. |
-| `render/src/vec3.cpp`       | The implementation of the `vec3` class.                                          |
 | `render/include/color.hpp`    | The header file for color utility functions.                                     |
 | `render/src/color.cpp`      | The implementation of color utility functions.                                   |
-| `render/include/math_utils.hpp` | The header file for math utility functions.                                    |
+| `render/include/cylinder.hpp` | The header file for the `cylinder` primitive.                                    |
+| `render/src/cylinder.cpp`   | The implementation of the ray-cylinder intersection logic.                       |
+| `render/include/hittable.hpp` | The header file for the `hittable` abstract base class, defining the interface for ray-traceable objects. |
+| `render/include/hittable_list.hpp` | The header file for the `hittable_list` class, which stores a list of hittable objects (can represent the scene or a BVH node's children). |
+| `render/src/hittable_list.cpp` | The implementation of the `hittable_list` class.                               |
+| `render/include/interval.hpp` | A utility class for representing 1D intervals, used for ray `t_min` and `t_max`. |
+| `render/include/material.hpp` | The header file for the `material` abstract base class and its derived classes (Lambertian, Metal, Dielectric, Diffuse Light). |
+| `render/src/material.cpp`   | The implementation of the `scatter` and `emitted` functions for the different materials. |
+| `render/include/math_utils.hpp` | The header file for general mathematical utility functions.                    |
+| `render/include/ray.hpp`      | The header file for the `ray` class.                                             |
+| `render/include/renderer.hpp` | The header file for the `renderer` class.                                        |
+| `render/src/renderer.cpp`   | The implementation of the `renderer` class, containing the main rendering loop, parallelization, and `ray_color` function. |
+| `render/include/sphere.hpp`   | The header file for the `sphere` primitive.                                      |
+| `render/src/sphere.cpp`     | The implementation of the ray-sphere intersection logic.                         |
+| `render/include/vec3.hpp`     | The header file for the `vec3` class, used for points, vectors, and colors, with inlined operations for performance. |
 
 ## Scene Grammar
 
@@ -51,7 +60,7 @@ The scene description language is a simple text-based format. For a detailed des
 
 ## Usage
 
-To build the renderer, create a `build` directory and run `cmake` and `make` from there:
+To build the renderer, ensure you have CMake and a C++20 compatible compiler. Then, create a `build` directory and run `cmake` and `make` from there:
 
 ```bash
 mkdir build
@@ -60,16 +69,26 @@ cmake ..
 make
 ```
 
-The renderer uses OpenMP for CPU parralelism. You have an OpenMP installation that the compiler can link to. 
+The renderer uses OpenMP for CPU parallelism. Your system must have an OpenMP installation that the compiler can link to.
 
-To run the renderer, use the `render` executable. It takes a scene file as a command-line argument. You can also specify the width, samples per pixel, and max depth:
+### Running the Renderer
+
+To run the standalone `render` executable, it takes an optional scene file as a command-line argument. If no file is provided, a default scene with four spheres is rendered.
+
+You can also specify the following options:
+
+| Flag                        | Description                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------ |
+| `[scene_file]`              | Path to the `.scene` file to render.                                           |
+| `--width <pixels>`          | Sets the width of the output image.                                            |
+| `--samples <count>`         | Sets the number of anti-aliasing samples per pixel.                            |
+| `--depth <count>`           | Sets the maximum ray bounce depth.                                             |
+| `--frame-scene`             | Automatically adjusts the camera to frame the main objects in the scene.       |
+
+**Example:**
+
+To render the `stress_test.scene` at a resolution of 1280px wide with auto-framing:
 
 ```bash
-./render [scene_file] [--width <pixels>] [--samples <count>] [--depth <count>] > output.ppm
-```
-
-For example, to render the `showcase.scene` at 1920 pixels wide with 1000 samples per pixel and a max depth of 50, you would run:
-
-```bash
-./render ../render/examples/showcase.scene --width 1920 --samples 1000 --depth 50 > showcase.ppm
+./render ../render/examples/stress_test.scene --width 1280 --frame-scene > stress_test_framed.ppm
 ```

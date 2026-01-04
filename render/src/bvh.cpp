@@ -64,22 +64,10 @@ bool bvh_node::hit(const ray& r, double ray_tmin, double ray_tmax, hit_record& r
         return false;
     }
 
-    // Check which child's bounding box is closer.
-    // This is a simple heuristic and not a full intersection test.
-    double dist_left = (left->bounding_box().min() - r.origin()).length_squared();
-    double dist_right = (right->bounding_box().min() - r.origin()).length_squared();
+    bool hit_left = left->hit(r, ray_tmin, ray_tmax, rec);
+    bool hit_right = right->hit(r, ray_tmin, hit_left ? rec.t : ray_tmax, rec);
 
-    bool hit1, hit2;
-
-    if (dist_left < dist_right) {
-        hit1 = left->hit(r, ray_tmin, ray_tmax, rec);
-        hit2 = right->hit(r, ray_tmin, hit1 ? rec.t : ray_tmax, rec);
-    } else {
-        hit1 = right->hit(r, ray_tmin, ray_tmax, rec);
-        hit2 = left->hit(r, ray_tmin, hit1 ? rec.t : ray_tmax, rec);
-    }
-
-    return hit1 || hit2;
+    return hit_left || hit_right;
 }
 
 aabb bvh_node::bounding_box() const {

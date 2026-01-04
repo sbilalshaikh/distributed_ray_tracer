@@ -54,12 +54,13 @@ std::vector<color> renderer::render_tile(
 }
 
 color renderer::ray_color(const ray& r, int depth, pcg32& rng) const {
-    
+    // If we've exceeded the ray bounce limit, no more light is gathered.
     if (depth <= 0)
         return color(0, 0, 0);
 
     hit_record rec;
-    if (world.hit(r, 0.001, std::numeric_limits<double>::infinity(), rec)) {
+    // Use a slightly larger t_min to avoid self-intersection issues with floating point inaccuracies
+    if (world.hit(r, 0.005, std::numeric_limits<double>::infinity(), rec)) {
         ray scattered;
         color attenuation;
         color emitted = rec.mat->emitted(rec);
