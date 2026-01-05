@@ -1,6 +1,6 @@
 # Distributed Raytracer
 
-This is a distributed ray tracing engine written in C++. It uses a master-worker architecture to distribute the rendering of a scene across multiple nodes.
+Distributed ray tracing engine written in C++. It uses a master-worker architecture to distribute the rendering of a scene across multiple nodes.
 
 ## Features
 
@@ -20,6 +20,7 @@ This is a distributed ray tracing engine written in C++. It uses a master-worker
 *   `master/`: The master node, which distributes the rendering work.
 *   `worker/`: The worker nodes, which perform the actual rendering.
 *   `render/`: The core ray tracing engine.
+*   `examples/`: Example scenes and images (ppm)
 
 ## Dependencies
 
@@ -73,34 +74,6 @@ To run the distributed renderer, you need to start the master node and one or mo
     ./worker -a localhost:50051
     ```
 
-## Scene File Format
+### Scene File
 
-The scene is described in a text-based format. Here's an example:
-
-```
-background_color 0.7 0.8 1.0
-
-camera {
-    position 0 0 -3
-    look_at 0 0 0
-    up 0 1 0
-    vfov 90
-}
-
-lambertian_material blue_ish 0.1 0.2 0.5
-metal_material shiny_metal 1.0 1.0 1.0 0.1
-dielectric_material glass 1.5
-
-sphere {
-    center 0 0 0
-    radius 0.5
-    material blue_ish
-}
-
-cylinder {
-    p1 0 0 0
-    p2 0 1 0
-    radius 0.1
-    material shiny_metal
-}
-```
+The renderer uses a custom file format to describe 3D scences. Examples are in the `examples/` directory
