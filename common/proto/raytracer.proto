@@ -93,19 +93,51 @@ message Tile {
   int32 y0 = 2;
   int32 width = 3;
   int32 height = 4;
+  int32 task_id = 5;
 }
 
 message RenderTask {
-  SceneData scene = 1;
-  Tile tile = 2;
-  int32 samples_per_pixel = 3;
-  int32 max_depth = 4;
+  Tile tile = 1;
+  int32 samples_per_pixel = 2;
+  int32 max_depth = 3;
 }
 
 message TileResult {
   Tile tile = 1;
   // Raw pixel data, RGB, 8-bits per channel
   bytes pixel_data = 2;
+}
+
+message RenderConfig {
+  int32 image_width = 1;
+  int32 image_height = 2;
+  int32 samples_per_pixel = 3;
+  int32 max_depth = 4;
+  int32 tile_size = 5;
+}
+
+message WorkerRegistrationRequest {
+  string hostname = 1;
+}
+
+message WorkerRegistrationResponse {
+  string worker_id = 1;
+  SceneData scene = 2;
+  RenderConfig config = 3;
+}
+
+message WorkRequest {
+  string worker_id = 1;
+}
+
+message TaskAssignment {
+  bool has_assignment = 1;
+  RenderTask task = 2;
+}
+
+message SubmitResultRequest {
+  string worker_id = 1;
+  TileResult result = 2;
 }
 
 message HealthCheckResponse {
@@ -120,14 +152,10 @@ message HealthCheckResponse {
 // --- gRPC Service Definition ---
 
 service RaytracerService {
-  // A worker calls this to check if the master is ready
   rpc HealthCheck(google.protobuf.Empty) returns (HealthCheckResponse);
-
-  // A worker calls this to get a stream of tasks
-  rpc RequestWork(google.protobuf.Empty) returns (stream RenderTask);
-
-  // A worker calls this to submit a completed task
-  rpc SubmitResult(TileResult) returns (google.protobuf.Empty);
+  rpc RegisterWorker(WorkerRegistrationRequest) returns (WorkerRegistrationResponse);
+  rpc RequestTask(WorkRequest) returns (TaskAssignment);
+  rpc SubmitResult(SubmitResultRequest) returns (google.protobuf.Empty);
 }
 
 import "google/protobuf/empty.proto";

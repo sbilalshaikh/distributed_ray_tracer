@@ -26,6 +26,20 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    int image_width = result["width"].as<int>();
+    int image_height = result["height"].as<int>();
+    int tile_size = result["tile-size"].as<int>();
+
+    if (image_width <= 0 || image_height <= 0) {
+        std::cerr << "Image width and height must be positive." << std::endl;
+        return 1;
+    }
+
+    if (tile_size <= 0) {
+        std::cerr << "Tile size must be positive." << std::endl;
+        return 1;
+    }
+
     std::string scene_path = result["scene"].as<std::string>();
     scene current_scene = parse_scene(scene_path);
     hittable_list world_bvh;
@@ -38,9 +52,9 @@ int main(int argc, char** argv) {
     try {
         RunServer(
             current_scene,
-            result["width"].as<int>(),
-            result["height"].as<int>(),
-            result["tile-size"].as<int>(),
+            image_width,
+            image_height,
+            tile_size,
             result["samples"].as<int>(),
             result["depth"].as<int>(),
             address,

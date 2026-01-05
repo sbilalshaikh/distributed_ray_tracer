@@ -1,8 +1,12 @@
 #include "worker.hpp"
+
+#include <grpcpp/grpcpp.h>
+
+#include <chrono>
 #include <iostream>
+#include <thread>
 #include <vector>
 
-#include "camera.hpp"
 #include "renderer.hpp"
 #include "hittable.hpp"
 #include "serialization.hpp"
@@ -10,63 +14,83 @@
 using grpc::ClientContext;
 using grpc::Status;
 
-RaytracerWorker::RaytracerWorker(std::shared_ptr<grpc::Channel> channel)
-    : stub_(RaytracerService::NewStub(channel)) {}
+RaytracerWorker::RaytracerWorker(std::shared_ptr<grpc::Channel> channel, std::string hostname)
+    : hostname_(std::move(hostname)),
+      stub_(RaytracerService::NewStub(std::move(channel))) {}
 
 void RaytracerWorker::run() {
+    if (!register_with_master()) {
+        return;
+    }
+
     if (!health_check()) {
         return;
     }
 
-    std::cout << "Master is healthy. Requesting work stream..." << std::endl;
-    
-    ClientContext context;
-    google::protobuf::Empty request;
-    
-    std::unique_ptr<grpc::ClientReader<RenderTask>> reader(
-        stub_->RequestWork(&context, request));
-        
-    RenderTask task;
-    while (reader->Read(&task)) {
-        std::cout << "Received task for tile (" << task.tile().x0() << ", " << task.tile().y0() << ")" << std::endl;
+    while (true) {
+        RenderTask task;
+        TaskFetchResult result = request_task(task);
+        if (result == TaskFetchResult::NoMoreTasks) {
+            break;
+        }
+        if (result == TaskFetchResult::Retry) {
+            continue;
+        }
 
-        std::shared_ptr<hittable> world = deserialize_scene(task.scene());
-        const auto& proto_cam = task.scene().camera();
-        
-        const int image_width = 1200; // These should eventually come from master
-        const int image_height = 800;
-        const double aspect_ratio = static_cast<double>(image_width) / image_height;
+        const auto& tile = task.tile();
+        std::cout << worker_id_ << " rendering tile (" << tile.x0() << ", " << tile.y0() << ")" << std::endl;
 
-        camera cam(
-            proto_to_vec3(proto_cam.position()),
-            proto_to_vec3(proto_cam.look_at()),
-            proto_to_vec3(proto_cam.up()),
-            proto_cam.vfov(),
-            aspect_ratio,
-            image_width, 
-            image_height
-        );
+        uint64_t seed = static_cast<uint64_t>(tile.task_id()) * 7919ULL + 17ULL;
 
-        renderer rend(cam, *world);
+        renderer rend(*camera_, *world_);
         std::vector<color> pixels = rend.render_tile(
-            task.tile().x0(),
-            task.tile().y0(),
-            task.tile().width(),
-            task.tile().height(),
+            tile.x0(),
+            tile.y0(),
+            tile.width(),
+            tile.height(),
             task.samples_per_pixel(),
             task.max_depth(),
-            0 // seed
+            seed
         );
         
-        submit_result(task.tile(), pixels);
+        if (!submit_result(tile, pixels)) {
+            break;
+        }
     }
-    
-    Status status = reader->Finish();
-    if (status.ok()) {
-        std::cout << "Work stream finished gracefully. Exiting." << std::endl;
-    } else {
-        std::cerr << "Work stream failed: " << status.error_message() << std::endl;
+
+    std::cout << worker_id_ << " finished - no more work." << std::endl;
+}
+
+bool RaytracerWorker::register_with_master() {
+    ClientContext context;
+    WorkerRegistrationRequest request;
+    request.set_hostname(hostname_);
+    WorkerRegistrationResponse response;
+
+    Status status = stub_->RegisterWorker(&context, request, &response);
+    if (!status.ok()) {
+        std::cerr << "Worker registration failed: " << status.error_message() << std::endl;
+        return false;
     }
+
+    worker_id_ = response.worker_id();
+    config_ = response.config();
+    scene_cache_ = response.scene();
+
+    world_ = deserialize_scene(scene_cache_);
+    if (!world_) {
+        std::cerr << "Failed to build scene from master response." << std::endl;
+        return false;
+    }
+
+    camera_ = build_camera_from_proto(scene_cache_.camera());
+    if (!camera_) {
+        std::cerr << "Failed to construct camera from master response." << std::endl;
+        return false;
+    }
+
+    std::cout << "Registered as " << worker_id_ << " with master." << std::endl;
+    return true;
 }
 
 bool RaytracerWorker::health_check() {
@@ -89,21 +113,75 @@ bool RaytracerWorker::health_check() {
     return true;
 }
 
-void RaytracerWorker::submit_result(const Tile& tile, const std::vector<color>& pixels) {
+RaytracerWorker::TaskFetchResult RaytracerWorker::request_task(RenderTask& task) {
     ClientContext context;
-    google::protobuf::Empty response;
-    TileResult result;
+    WorkRequest request;
+    request.set_worker_id(worker_id_);
 
-    result.mutable_tile()->CopyFrom(tile);
-    
-    std::vector<uint8_t> byte_buffer;
-    byte_buffer.reserve(pixels.size() * 3);
-    for(const auto& p : pixels) {
-        byte_buffer.push_back(static_cast<uint8_t>(255.999 * p.x()));
-        byte_buffer.push_back(static_cast<uint8_t>(255.999 * p.y()));
-        byte_buffer.push_back(static_cast<uint8_t>(255.999 * p.z()));
+    TaskAssignment response;
+    Status status = stub_->RequestTask(&context, request, &response);
+
+    if (!status.ok()) {
+        if (status.error_code() == grpc::StatusCode::UNAUTHENTICATED) {
+            std::cerr << "Master no longer recognizes " << worker_id_
+                      << ". Attempting to re-register..." << std::endl;
+            if (register_with_master()) {
+                return TaskFetchResult::Retry;
+            }
+            return TaskFetchResult::Retry;
+        }
+        std::cerr << "Failed to request task: " << status.error_message() << std::endl;
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        return TaskFetchResult::Retry;
     }
-    result.set_pixel_data(byte_buffer.data(), byte_buffer.size());
 
-    stub_->SubmitResult(&context, result, &response);
+    if (!response.has_assignment()) {
+        return TaskFetchResult::NoMoreTasks;
+    }
+
+    task = response.task();
+    return TaskFetchResult::TaskReceived;
+}
+
+bool RaytracerWorker::submit_result(const Tile& tile, const std::vector<color>& pixels) {
+    ClientContext context;
+    SubmitResultRequest request;
+    request.set_worker_id(worker_id_);
+
+    auto* result = request.mutable_result();
+    result->mutable_tile()->CopyFrom(tile);
+    
+    std::string buffer;
+    buffer.reserve(pixels.size() * 3);
+    for (const auto& p : pixels) {
+        buffer.push_back(static_cast<char>(static_cast<uint8_t>(255.999 * p.x())));
+        buffer.push_back(static_cast<char>(static_cast<uint8_t>(255.999 * p.y())));
+        buffer.push_back(static_cast<char>(static_cast<uint8_t>(255.999 * p.z())));
+    }
+    result->set_pixel_data(std::move(buffer));
+
+    google::protobuf::Empty response;
+    Status status = stub_->SubmitResult(&context, request, &response);
+    if (!status.ok()) {
+        if (status.error_code() == grpc::StatusCode::UNAUTHENTICATED) {
+            std::cerr << "SubmitResult rejected (unauthenticated). Re-registering..." << std::endl;
+            return register_with_master();
+        }
+        std::cerr << "SubmitResult failed: " << status.error_message() << std::endl;
+        return false;
+    }
+    return true;
+}
+
+std::unique_ptr<camera> RaytracerWorker::build_camera_from_proto(const raytracer::Camera& proto_cam) const {
+    const double aspect_ratio = static_cast<double>(config_.image_width()) / config_.image_height();
+    return std::make_unique<camera>(
+        proto_to_vec3(proto_cam.position()),
+        proto_to_vec3(proto_cam.look_at()),
+        proto_to_vec3(proto_cam.up()),
+        proto_cam.vfov(),
+        aspect_ratio,
+        config_.image_width(),
+        config_.image_height()
+    );
 }

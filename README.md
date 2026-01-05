@@ -31,18 +31,14 @@ Distributed ray tracing engine written in C++. It uses a master-worker architect
 
 ## Building the Project
 
-1.  **Install Dependencies:** Install the required dependencies using your system's package manager.
-2.  **Create a build directory:**
+1.  **Install Dependencies:** Install the required dependencies using your system's package manager (gRPC/protobuf, OpenMP, CMake ≥ 3.15).
+2.  **Configure with CMake:**
     ```bash
-    mkdir build && cd build
+    cmake -S . -B build
     ```
-3.  **Run CMake:**
+3.  **Build all binaries:**
     ```bash
-    cmake ..
-    ```
-4.  **Build the project:**
-    ```bash
-    make
+    cmake --build build
     ```
 
 ## Running the Raytracer
@@ -59,21 +55,30 @@ The `render` executable is a standalone ray tracer that can render a scene witho
 
 ### Distributed Renderer
 
-To run the distributed renderer, you need to start the master node and one or more worker nodes.
+The distributed path uses a persistent master service and a pool of stateless workers. Each worker registers once, receives the immutable scene plus render settings, and then streams task requests until no more tiles remain.
 
-1.  **Start the master node:**
+1.  **Start the master node** (from the `build/` directory):
     ```bash
-    ./master -s <scene_file> -o <output_file>
+    ./master \
+      --scene examples/stress_test.scene \
+      --output output.ppm \
+      --width 1920 \
+      --height 1080 \
+      --tile-size 64 \
+      --samples 200 \
+      --depth 50 \
+      --port 50051
     ```
-2.  **Start one or more worker nodes:**
+    The master validates image/tile dimensions, splits the image into uniquely identified tiles, and listens for worker registrations on the requested port.
+
+2.  **Start one or more worker nodes** (can run locally or remotely):
     ```bash
-    ./worker -a <master_address>
+    ./worker \
+      --address master-host:50051 \
+      --name kitchen-gpu
     ```
-    For example:
-    ```bash
-    ./worker -a localhost:50051
-    ```
+    `--name` (default `local-worker`) helps identify logs on the master. Each worker re-registers automatically if the master restarts or forgets its lease.
 
 ### Scene File
 
-The renderer uses a custom file format to describe 3D scences. Examples are in the `examples/` directory
+The renderer uses a custom file format to describe 3D scenes. Examples are in the `examples/` directory, and the grammar is documented alongside the parser in `common/`. During registration the master serializes the full scene graph (including BVH and camera) using `common/proto/raytracer.proto` and pushes it to every worker so tasks only need tile metadata.
