@@ -1,0 +1,133 @@
+syntax = "proto3";
+
+package raytracer;
+
+// --- Basic Geometric and Color Types ---
+
+message Vec3 {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+
+message Aabb {
+  Vec3 min_point = 1;
+  Vec3 max_point = 2;
+}
+
+// --- Material Definitions ---
+
+message Lambertian {
+  Vec3 albedo = 1;
+}
+
+message Metal {
+  Vec3 albedo = 1;
+  double fuzz = 2;
+}
+
+message Dielectric {
+  double ir = 1;
+}
+
+message DiffuseLight {
+  Vec3 emit_color = 1;
+}
+
+message Material {
+  oneof material_type {
+    Lambertian lambertian = 1;
+    Metal metal = 2;
+    Dielectric dielectric = 3;
+    DiffuseLight diffuse_light = 4;
+  }
+}
+
+// --- Hittable Object Definitions ---
+
+message Sphere {
+  Vec3 center = 1;
+  double radius = 2;
+  Material material = 3;
+}
+
+message Cylinder {
+  Vec3 p1 = 1;
+  Vec3 p2 = 2;
+  double radius = 3;
+  Material material = 4;
+}
+
+message BvhNode {
+  Aabb bounding_box = 1;
+  int32 left_child_index = 2;
+  int32 right_child_index = 3;
+}
+
+message SceneNode {
+  oneof node_type {
+    BvhNode bvh_node = 1;
+    Sphere sphere = 2;
+    Cylinder cylinder = 3;
+  }
+}
+
+message Camera {
+  Vec3 position = 1;
+  Vec3 look_at = 2;
+  Vec3 up = 3;
+  double vfov = 4;
+}
+
+// --- Scene and Task Definitions ---
+
+message SceneData {
+  repeated SceneNode nodes = 1;
+  int32 root_node_index = 2;
+  Vec3 background_color = 3;
+  Camera camera = 4;
+}
+
+message Tile {
+  int32 x0 = 1;
+  int32 y0 = 2;
+  int32 width = 3;
+  int32 height = 4;
+}
+
+message RenderTask {
+  SceneData scene = 1;
+  Tile tile = 2;
+  int32 samples_per_pixel = 3;
+  int32 max_depth = 4;
+}
+
+message TileResult {
+  Tile tile = 1;
+  // Raw pixel data, RGB, 8-bits per channel
+  bytes pixel_data = 2;
+}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+  }
+  ServingStatus status = 1;
+}
+
+// --- gRPC Service Definition ---
+
+service RaytracerService {
+  // A worker calls this to check if the master is ready
+  rpc HealthCheck(google.protobuf.Empty) returns (HealthCheckResponse);
+
+  // A worker calls this to get a stream of tasks
+  rpc RequestWork(google.protobuf.Empty) returns (stream RenderTask);
+
+  // A worker calls this to submit a completed task
+  rpc SubmitResult(TileResult) returns (google.protobuf.Empty);
+}
+
+import "google/protobuf/empty.proto";

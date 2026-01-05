@@ -6,11 +6,16 @@
 #include "material.hpp" 
 #include "hittable.hpp"
 #include "color.hpp"
-#include "omp.h"
 #include "ray.hpp"
 #include "camera.hpp"
 #include "math_utils.hpp"
 #include "../third_party/pcg_random_helper.hpp"
+
+#if defined(_OPENMP)
+#include <omp.h>
+#else
+static inline int omp_get_thread_num() { return 0; }
+#endif
 
 renderer::renderer(const camera& cam_, const hittable& world_)
     : cam(cam_), world(world_) {}

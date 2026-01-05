@@ -18,6 +18,7 @@ class sphere : public hittable {
 
     const point3& center_point() const { return center; }
     double radius_value() const { return radius; }
+    std::shared_ptr<material> get_material() const { return mat; }
 
   private:
     point3 center;

@@ -52,6 +52,10 @@ bvh_node::bvh_node(std::vector<std::shared_ptr<hittable>>& objects, size_t start
     bbox = aabb(left->bounding_box(), right->bounding_box());
 }
 
+// Constructor for deserialization
+bvh_node::bvh_node(std::shared_ptr<hittable> left, std::shared_ptr<hittable> right, aabb bbox)
+    : left(left), right(right), bbox(bbox) {}
+
 // public constructor 
 bvh_node::bvh_node(const hittable_list& list) {
     auto objects = list.objects;
